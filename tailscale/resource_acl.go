@@ -148,7 +148,12 @@ func resourceACLUpdate(ctx context.Context, d *schema.ResourceData, m interface{
 		return nil
 	}
 
-	if err := client.PolicyFile().Set(ctx, d.Get("acl").(string), ""); err != nil {
+	acl, err := client.PolicyFile().Raw(ctx)
+	if err != nil {
+		return diagnosticsError(err, "Failed to fetch policy file")
+	}
+
+	if err := client.PolicyFile().Set(ctx, d.Get("acl").(string), acl.ETag); err != nil {
 		return diagnosticsError(err, "Failed to set policy file")
 	}
 

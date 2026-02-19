@@ -148,6 +148,60 @@ func TestProvider_TailscaleACLDiffs(t *testing.T) {
 	})
 }
 
+func TestProvider_TailscaleACLUpdateUsesETag(t *testing.T) {
+	const testACLCreate = `
+		resource "tailscale_acl" "test_acl" {
+			overwrite_existing_content = true
+			acl = <<EOF
+			{
+				"ACLs": [{
+					"Action": "accept",
+					"Users": ["*"],
+					"Ports": ["*:*"]
+				}]
+			}
+			EOF
+		}`
+
+	const testACLUpdate = `
+		resource "tailscale_acl" "test_acl" {
+			acl = <<EOF
+			{
+				"TagOwners": {
+					"tag:example": ["autogroup:member"]
+				}
+			}
+			EOF
+		}`
+
+	resource.Test(t, resource.TestCase{
+		IsUnitTest:        true,
+		ProviderFactories: testProviderFactories(t),
+		PreCheck: func() {
+			testServer.ResponseCode = http.StatusOK
+			testServer.ResponseBody = []byte("{}")
+			testServer.ResponseHeaders = map[string]string{"Etag": "v1"}
+		},
+		Steps: []resource.TestStep{
+			testResourceCreated("tailscale_acl.test_acl", testACLCreate),
+			{
+				ResourceName:       "tailscale_acl.test_acl",
+				Config:             testACLUpdate,
+				ExpectNonEmptyPlan: true,
+				PreConfig: func() {
+					testServer.ResponseBody = []byte(`{"TagOwners":{"tag:example":["autogroup:member"]}}`)
+				},
+				Check: func(_ *terraform.State) error {
+					if diff := cmp.Diff("\"v1\"", testServer.LastPolicySetIfMatch); diff != "" {
+						return fmt.Errorf("wrong If-Match header sent on update (-want +got):\n%s", diff)
+					}
+					return nil
+				},
+			},
+		},
+	})
+}
+
 func TestAccACL(t *testing.T) {
 	const resourceName = "tailscale_acl.test_acl"
 

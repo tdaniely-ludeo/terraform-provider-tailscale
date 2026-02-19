@@ -26,8 +26,11 @@ type TestServer struct {
 	Path   string
 	Body   *bytes.Buffer
 
-	ResponseCode int
-	ResponseBody interface{}
+	LastPolicySetIfMatch string
+
+	ResponseCode    int
+	ResponseBody    interface{}
+	ResponseHeaders map[string]string
 }
 
 func NewTestHarness(t *testing.T) (*tailscale.Client, *TestServer) {
@@ -71,10 +74,17 @@ func NewTestHarness(t *testing.T) (*tailscale.Client, *TestServer) {
 func (t *TestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t.Method = r.Method
 	t.Path = r.URL.Path
+	if r.Method == http.MethodPost && r.URL.Path == "/api/v2/tailnet/example.com/acl" {
+		t.LastPolicySetIfMatch = r.Header.Get("If-Match")
+	}
 
 	t.Body = bytes.NewBuffer([]byte{})
 	_, err := io.Copy(t.Body, r.Body)
 	assert.NoError(t.t, err)
+
+	for k, v := range t.ResponseHeaders {
+		w.Header().Set(k, v)
+	}
 
 	w.WriteHeader(t.ResponseCode)
 	switch body := t.ResponseBody.(type) {
